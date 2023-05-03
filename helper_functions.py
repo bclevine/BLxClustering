@@ -29,13 +29,14 @@ def load_sacc(filename):
     covariances = []
     df = pd.DataFrame()
     nz_df = pd.DataFrame()
-    try:
+    try:  # TRY BEN FORMAT
         for i in range(5):
             tx = s.get_theta_xi(
                 "galaxy_density_xi", f"lens{i}", f"lens{i}", return_cov=True
             )
             df[f"theta_{i}"] = tx[0]
             df[f"w_{i}"] = tx[1]
+            df[f"werr_{i}"] = np.sqrt(tx[2].diagonal())
             covariances.append(tx[2])
             nz_df[f"z_{i}"] = s.tracers[f"lens{i}"].z
             nz_df[f"Nz_{i}"] = s.tracers[f"lens{i}"].nz
