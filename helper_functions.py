@@ -8,8 +8,7 @@ from chainconsumer import ChainConsumer
 import pickle
 import pandas as pd
 import sacc
-from scipy.stats import norm
-from numpy.random import normal
+from scipy.optimize import minimize
 
 # SCALE CUTS
 astropy_cosmo = astropy.cosmology.FlatLambdaCDM(
@@ -26,10 +25,10 @@ def compute_scale_cuts(physical_scale):
 # LOAD DATA VECTOR FROM SACC
 def load_sacc(filename):
     s = sacc.Sacc.load_fits(filename)
-    covariances = []
-    df = pd.DataFrame()
-    nz_df = pd.DataFrame()
     try:  # TRY BEN FORMAT
+        covariances = []
+        df = pd.DataFrame()
+        nz_df = pd.DataFrame()
         for i in range(5):
             tx = s.get_theta_xi(
                 "galaxy_density_xi", f"lens{i}", f"lens{i}", return_cov=True
@@ -42,6 +41,9 @@ def load_sacc(filename):
             nz_df[f"Nz_{i}"] = s.tracers[f"lens{i}"].nz
     except Exception:
         try:  # TRY JUDIT FORMAT
+            covariances = []
+            df = pd.DataFrame()
+            nz_df = pd.DataFrame()
             for i in range(5):
                 tx = s.get_theta_xi(
                     "galaxy_density_xi", f"lens_{i}", f"lens_{i}", return_cov=True
@@ -233,7 +235,7 @@ class Data_Processor:
     def __init__(self, data_vector, chain, model, parnames, fit_vals=None):
         data, nz_data, cov = data_vector
         # LOAD AND ANALYZE POSTERIOR
-        if fit_vals is None:
+        if (chain is not None) and (fit_vals is None):
             c = ChainConsumer()
             c.add_chain(
                 chain,
@@ -311,3 +313,100 @@ def plot_model(
         y=1.1,
     )
     plt.show()
+
+
+# MODEL+RESIDUAL PLOTTER
+def plot_model_residual(
+    data_vector, chain, model, label, angle_list, parnames, fit_vals=None, color="C1"
+):
+    data = data_vector[0]
+    processor = Data_Processor(data_vector, chain, model, parnames, fit_vals)
+
+    # Calculate Chi2
+    masks, inv_cov = preprocess(data_vector, angle_list)
+    w_model = processor.ccl_guess
+    resid = [
+        np.einsum(
+            "i, ij, j",
+            data[f"w_{i}"][masks[i]] - w_model[i][masks[i]],
+            inv_cov[i],
+            data[f"w_{i}"][masks[i]] - w_model[i][masks[i]],
+        )
+        for i in range(5)
+    ]
+    n_dof = [len(data[f"w_{i}"][masks[i]]) for i in range(len(masks))]
+
+    # PLOT
+    fig, axs = plt.subplots(2, 5, figsize=(15, 4), height_ratios=[3, 1])
+    for i in range(len(axs[1])):
+        axs[0][i].set_title(
+            f"${np.round((.2*i)+.2, 2)} < z < {np.round((.2*i)+.4, 2)}$"
+        )
+        axs[0][i].axvspan(0, angle_list[i], alpha=0.2)
+        axs[0][i].errorbar(
+            data[f"theta_{i}"],
+            data[f"w_{i}"],
+            data[f"werr_{i}"],
+            label=label,
+            color=color,
+        )
+        axs[0][i].plot(
+            data[f"theta_{i}"][len(data[f"theta_{i}"]) - len(processor.ccl_guess[i]) :],
+            processor.ccl_guess[i],
+            label="Best Fit Model",
+            color="red",
+        )
+        axs[0][i].set_xscale("log")
+        axs[0][i].set_yscale("log")
+        axs[0][i].set_xlim(2, 250)
+        axs[0][i].set_ylim(4e-5, 0.1)
+        axs[0][i].legend(loc="lower left")
+        # axs[0][i].set_xlabel("$\\theta$ [arcmin]")
+        axs[0][i].text(
+            0.95,
+            0.9,
+            f"$\\chi^2/\\nu$ = {resid[i]:.1f}/{n_dof[i]:.0f}",
+            horizontalalignment="right",
+            verticalalignment="center",
+            transform=axs[0][i].transAxes,
+        )
+        axs[0][i].axes.xaxis.set_ticklabels([])
+        if i == 0:
+            axs[0][i].set_ylabel("$w(\\theta)$")
+        if i != 0:
+            axs[0][i].axes.yaxis.set_ticklabels([])
+    fig.suptitle(
+        f"{label}; pars = {np.round(processor.best_fits, 3)}; $\\chi^2/\\nu$ = {np.sum(resid):.1f}/{np.sum(n_dof)}",
+        y=1.1,
+    )
+    # RESIDUALS
+    for i in range(len(axs[1])):
+        axs[1][i].axvspan(0, angle_list[i], alpha=0.2)
+        axs[1][i].axhline(0, 0, 500, color="black", ls=":")
+        axs[1][i].plot(
+            data[f"theta_{i}"],
+            (data[f"w_{i}"] - processor.ccl_guess[i]) / data[f"werr_{i}"],
+            color=color,
+        )
+
+        axs[1][i].set_xscale("log")
+        axs[1][i].set_yscale("linear")
+        axs[1][i].set_xlim(2, 250)
+        # axs[1][i].set_ylim(0, 2)
+        axs[1][i].set_xlabel("$\\theta$ [arcmin]")
+        if i == 0:
+            axs[1][i].set_ylabel("data-model/err")
+        if i != 0:
+            axs[1][i].axes.yaxis.set_ticklabels([])
+    plt.show()
+
+
+# GRADIENT MINIMIZATION FUNCTION
+def gradient_minimize(pars, data_vector, angles, model, prior):
+    masks, inv_cov = preprocess(data_vector, angles)
+    return minimize(
+        min_func,
+        pars,
+        args=(data_vector[0], data_vector[1], inv_cov, masks, model, prior),
+        method="Nelder-Mead",
+    )
