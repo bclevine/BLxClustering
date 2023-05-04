@@ -319,7 +319,7 @@ def plot_model(
 def plot_model_residual(
     data_vector, chain, model, label, angle_list, parnames, fit_vals=None, color="C1"
 ):
-    data = data_vector[0]
+    data, nz, cov = data_vector
     processor = Data_Processor(data_vector, chain, model, parnames, fit_vals)
 
     # Calculate Chi2
@@ -337,7 +337,7 @@ def plot_model_residual(
     n_dof = [len(data[f"w_{i}"][masks[i]]) for i in range(len(masks))]
 
     # PLOT
-    fig, axs = plt.subplots(2, 5, figsize=(15, 4), height_ratios=[3, 1])
+    fig, axs = plt.subplots(2, 5, figsize=(15, 3), height_ratios=[4, 1])
     for i in range(len(axs[1])):
         axs[0][i].set_title(
             f"${np.round((.2*i)+.2, 2)} < z < {np.round((.2*i)+.4, 2)}$"
@@ -346,7 +346,8 @@ def plot_model_residual(
         axs[0][i].errorbar(
             data[f"theta_{i}"],
             data[f"w_{i}"],
-            data[f"werr_{i}"],
+            np.sqrt(cov[i].diagonal()),
+            # data[f"werr_{i}"],
             label=label,
             color=color,
         )
@@ -356,9 +357,7 @@ def plot_model_residual(
             label="Best Fit Model",
             color="red",
         )
-        axs[0][i].set_xscale("log")
-        axs[0][i].set_yscale("log")
-        axs[0][i].set_xlim(2, 250)
+        residual_plot_helper(axs, 0, i, "log")
         axs[0][i].set_ylim(4e-5, 0.1)
         axs[0][i].legend(loc="lower left")
         # axs[0][i].set_xlabel("$\\theta$ [arcmin]")
@@ -371,34 +370,36 @@ def plot_model_residual(
             transform=axs[0][i].transAxes,
         )
         axs[0][i].axes.xaxis.set_ticklabels([])
-        if i == 0:
-            axs[0][i].set_ylabel("$w(\\theta)$")
-        if i != 0:
-            axs[0][i].axes.yaxis.set_ticklabels([])
-    fig.suptitle(
-        f"{label}; pars = {np.round(processor.best_fits, 3)}; $\\chi^2/\\nu$ = {np.sum(resid):.1f}/{np.sum(n_dof)}",
-        y=1.1,
-    )
-    # RESIDUALS
-    for i in range(len(axs[1])):
+        # RESIDUALS
         axs[1][i].axvspan(0, angle_list[i], alpha=0.2)
         axs[1][i].axhline(0, 0, 500, color="black", ls=":")
         axs[1][i].plot(
             data[f"theta_{i}"],
-            (data[f"w_{i}"] - processor.ccl_guess[i]) / data[f"werr_{i}"],
+            (data[f"w_{i}"] - processor.ccl_guess[i])
+            / np.sqrt(cov[i].diagonal()),  # data[f"werr_{i}"],
             color=color,
         )
-
-        axs[1][i].set_xscale("log")
-        axs[1][i].set_yscale("linear")
-        axs[1][i].set_xlim(2, 250)
-        # axs[1][i].set_ylim(0, 2)
+        residual_plot_helper(axs, 1, i, "linear")
+        axs[1][i].set_ylim(-3, 2)
         axs[1][i].set_xlabel("$\\theta$ [arcmin]")
         if i == 0:
-            axs[1][i].set_ylabel("data-model/err")
+            axs[0][i].set_ylabel("$w(\\theta)$")
+            axs[1][i].set_ylabel("$(w_{data} - w_{model})/\\sigma_{w}$")
         if i != 0:
+            axs[0][i].axes.yaxis.set_ticklabels([])
             axs[1][i].axes.yaxis.set_ticklabels([])
+    fig.suptitle(
+        f"{label}; pars = {np.round(processor.best_fits, 3)}; $\\chi^2/\\nu$ = {np.sum(resid):.1f}/{np.sum(n_dof)}",
+        y=1.1,
+    )
+    fig.subplots_adjust(hspace=0)
     plt.show()
+
+
+def residual_plot_helper(axs, idx, i, yscale):
+    axs[idx][i].set_xscale("log")
+    axs[idx][i].set_yscale(yscale)
+    axs[idx][i].set_xlim(2, 250)
 
 
 # GRADIENT MINIMIZATION FUNCTION
