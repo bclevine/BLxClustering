@@ -10,6 +10,9 @@ import pandas as pd
 import sacc
 from scipy.optimize import minimize
 
+# Turns off an annoying warning message :p
+np.warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
+
 # SCALE CUTS
 astropy_cosmo = astropy.cosmology.FlatLambdaCDM(
     H0=71, Om0=0.2648, Ob0=0.0448
@@ -25,7 +28,9 @@ def compute_scale_cuts(physical_scale):
 # LOAD DATA VECTOR FROM SACC
 def load_sacc(filename):
     s = sacc.Sacc.load_fits(filename)
-    try:  # TRY BEN FORMAT
+    if (
+        s.get_tracer_combinations("galaxy_density_xi")[0][0] == "lens0"
+    ):  # USE BEN FORMAT
         covariances = []
         df = pd.DataFrame()
         nz_df = pd.DataFrame()
@@ -39,25 +44,26 @@ def load_sacc(filename):
             covariances.append(tx[2])
             nz_df[f"z_{i}"] = s.tracers[f"lens{i}"].z
             nz_df[f"Nz_{i}"] = s.tracers[f"lens{i}"].nz
-    except Exception:
-        try:  # TRY JUDIT FORMAT
-            covariances = []
-            df = pd.DataFrame()
-            nz_df = pd.DataFrame()
-            for i in range(5):
-                tx = s.get_theta_xi(
-                    "galaxy_density_xi", f"lens_{i}", f"lens_{i}", return_cov=True
-                )
-                df[f"theta_{i}"] = tx[0]
-                df[f"w_{i}"] = tx[1]
-                df[f"werr_{i}"] = s.get_tag(
-                    "error", "galaxy_density_xi", (f"lens_{i}", f"lens_{i}")
-                )
-                covariances.append(tx[2])
-                nz_df[f"z_{i}"] = s.tracers[f"lens_{i}"].z
-                nz_df[f"Nz_{i}"] = s.tracers[f"lens_{i}"].nz
-        except:
-            raise ValueError("Check names of data vectors?")
+    elif (
+        s.get_tracer_combinations("galaxy_density_xi")[0][0] == "lens_0"
+    ):  # USE JUDIT FORMAT:
+        covariances = []
+        df = pd.DataFrame()
+        nz_df = pd.DataFrame()
+        for i in range(5):
+            tx = s.get_theta_xi(
+                "galaxy_density_xi", f"lens_{i}", f"lens_{i}", return_cov=True
+            )
+            df[f"theta_{i}"] = tx[0]
+            df[f"w_{i}"] = tx[1]
+            df[f"werr_{i}"] = s.get_tag(
+                "error", "galaxy_density_xi", (f"lens_{i}", f"lens_{i}")
+            )
+            covariances.append(tx[2])
+            nz_df[f"z_{i}"] = s.tracers[f"lens_{i}"].z
+            nz_df[f"Nz_{i}"] = s.tracers[f"lens_{i}"].nz
+    else:
+        raise ValueError("Check names of data vectors?")
     return df, nz_df, covariances
 
 
